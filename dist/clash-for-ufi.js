@@ -126,7 +126,7 @@ echo "${marker}:$code"
  };
 
  // Unified Clash for UFI bridge via /data/clash/Scripts/debug_service.sh
- const PLUGIN_VERSION = '2.1.1';
+ const PLUGIN_VERSION = '2.1.2';
  const PLUGIN_REPO = 'lack9921/UFI-Proxy-Studio';
  const runSubscriptionBridge = async (action, _argument = '') => {
   if (action === 'status') {
@@ -154,7 +154,10 @@ echo "${marker}:$code"
    if (!data.ok) throw new Error(data.error || '刷新失败');
    return { ok: true, data: { status: 'applied', config_sha256: data.config_sha256 || '' } };
   }
-  if (action === 'check' || action === 'bind') {
+  if (action === 'check') {
+   return { ok: true, data: { status: 'unchanged' } };
+  }
+  if (action === 'bind') {
    return await runSubscriptionBridge('status');
   }
   throw new Error('桥接动作不受支持');

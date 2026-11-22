@@ -1,7 +1,7 @@
 {
-  "version": "2.1.1",
+  "version": "2.1.2",
   "plugin_name": "Clash for UFI",
-  "sha256": "7db0cea89e5fed3eab31490f76f238694de4dde2f88690d47c0778a552ec1572",
+  "sha256": "593c2b8b2ed526379e2b0dbaba4146283cb87f1d2d11cf5511a8360e9a0ad88e",
   "plugin_url": "https://raw.githubusercontent.com/lack9921/UFI-Proxy-Studio/main/dist/clash-for-ufi.js",
-  "notes": "v2.1.1: direct custom core upload via Debug port 17789 + reliable indexOf plugin block replacement"
+  "notes": "v2.1.2: fix Toybox grep regex in /v1/subscription/refresh & clear pending refresh check state cleanly"
 }

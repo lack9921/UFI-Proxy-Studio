@@ -360,7 +360,7 @@ case "$method $path" in
             send_json 400 "Bad Request" '{"ok":false,"error":"no bound subscription source in /data/clash/Profiles/current-subscription.source"}'
             exit 0
         fi
-        src_count=$(tr -s ' \t\r\n' '\n' < "$SUB_SOURCE" | grep -c '^https\?://' || true)
+        src_count=$( (cat "$SUB_SOURCE"; echo) | tr -s ' \t\r\n' '\n' | grep -Ec '^https?://' || true)
         if [ "$src_count" -ne 1 ]; then
             audit_log "sub_refresh" "400" "ambiguous_source"
             send_json 400 "Bad Request" '{"ok":false,"error":"subscription source must contain exactly 1 URL"}'
