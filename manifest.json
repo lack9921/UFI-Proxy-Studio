@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "plugin_name": "Clash for UFI",
-  "sha256": "0f909327d20460170d331af6032ec61ba71f32981a004457a76bc1a74e3fbc5c",
+  "sha256": "cd394b8330a148a68f89e95b2d365cb35a7d6e120e40bba0da4e2fe0d56b1ad0",
   "plugin_url": "https://raw.githubusercontent.com/lack9921/UFI-Proxy-Studio/main/dist/clash-for-ufi.js",
-  "notes": "Unified Clash for UFI + LAN-only Pro Debug API (17789) + working hot subscription refresh + one-click self-update"
+  "notes": "Fix UFI-TOOLS importer false-matching KANO_PLUGIN_START literal inside self-updater"
 }
