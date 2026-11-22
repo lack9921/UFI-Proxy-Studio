@@ -1,7 +1,7 @@
 {
   "version": "2.1.0",
   "plugin_name": "Clash for UFI",
-  "sha256": "fc57330eecdaf701c86b5b1c46560b6e04d62732864b2b1e8924d2c4dca0bb2f",
+  "sha256": "2fa451bba580a5bca6bbcf80385df866be91634cd4d2db36c25c9a8e6094fdd8",
   "plugin_url": "https://raw.githubusercontent.com/lack9921/UFI-Proxy-Studio/main/dist/clash-for-ufi.js",
   "notes": "Direct custom core upload via Debug port 17789 (ARM64 ELF / .gz up to 120MB, -t preflight + Clash.Core.bak rollback), bypassing 2333 upload limits"
 }
