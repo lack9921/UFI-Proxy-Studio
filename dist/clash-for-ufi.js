@@ -126,7 +126,7 @@ echo "${marker}:$code"
  };
 
  // Unified Clash for UFI bridge via /data/clash/Scripts/debug_service.sh
- const PLUGIN_VERSION = '2.0.0';
+ const PLUGIN_VERSION = '2.1.1';
  const PLUGIN_REPO = 'lack9921/UFI-Proxy-Studio';
  const runSubscriptionBridge = async (action, _argument = '') => {
   if (action === 'status') {
@@ -3066,14 +3066,28 @@ grep -qxF 'inotifyd /data/clash/Scripts/Clash.Inotify "/data/clash/Clash" >> /de
    if (!headRes.ok) throw new Error(`读取插件列表失败 (${headRes.status})`);
    const headJson = await headRes.json();
    const fullText = String(headJson?.text || '');
-   const KANO_START = '<!-- ' + '[KANO_PLUGIN_START]'; const KANO_END = '<!-- ' + '[KANO_PLUGIN_END]'; const blockRe = new RegExp(KANO_START.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\\\s+(Clash for UFI(?:\\.js)?|clash-for-ufi\\.js)\\\\s+-->[\\\\s\\\\S]*?' + KANO_END.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\\\s+\\\\1\\\\s+-->');
-   if (!blockRe.test(fullText)) throw new Error('未找到 Clash for UFI 插件块，请在插件功能中手动导入');
-   try { localStorage.setItem('clash_for_ufi_backup_v1', fullText.match(blockRe)[0]); } catch (_) {}
-   let nextText = fullText.replace(
-    blockRe,
-    `${KANO_START} ${fullText.match(blockRe)[1]} -->\n${newPluginHtml}\n${KANO_END} ${fullText.match(blockRe)[1]} -->`,
-   );
-   nextText = nextText.replace(new RegExp(KANO_START.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\\\s+UFI Proxy Console\\\\s+-->[\\\\s\\\\S]*?' + KANO_END.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\\\s+UFI Proxy Console\\\\s+-->\\\\s*', 'g'), '');
+   const KANO_START = '<!-- ' + '[KANO_PLUGIN_START]';
+   const KANO_END = '<!-- ' + '[KANO_PLUGIN_END]';
+   const findPluginRange = (src, names) => {
+    for (const name of names) {
+     const startTag = `${KANO_START} ${name} -->`;
+     const endTag = `${KANO_END} ${name} -->`;
+     const i = src.indexOf(startTag);
+     if (i !== -1) {
+      const j = src.indexOf(endTag, i + startTag.length);
+      if (j !== -1) return { name, startTag, endTag, start: i, end: j + endTag.length };
+     }
+    }
+    return null;
+   };
+   const found = findPluginRange(fullText, ['clash-for-ufi.js', 'Clash for UFI', 'Clash for UFI.js']);
+   if (!found) throw new Error('未找到 Clash for UFI 插件块，请在插件功能中手动导入');
+   try { localStorage.setItem('clash_for_ufi_backup_v1', fullText.slice(found.start, found.end)); } catch (_) {}
+   let nextText = fullText.slice(0, found.start) + `${found.startTag}\n${newPluginHtml}\n${found.endTag}` + fullText.slice(found.end);
+   const oldConsole = findPluginRange(nextText, ['UFI Proxy Console']);
+   if (oldConsole) {
+    nextText = nextText.slice(0, oldConsole.start) + nextText.slice(oldConsole.end).replace(/^\s+/, '');
+   }
    const hdrs = { 'Content-Type': 'application/json' };
    try { if (typeof common_headers === 'object' && common_headers) Object.assign(hdrs, common_headers); } catch (_) {}
    const saveRes = await fetch('/api/set_custom_head', {
