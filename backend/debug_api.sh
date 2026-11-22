@@ -382,7 +382,9 @@ case "$method $path" in
         old_sec=$("$YQ" e '.secret // ""' "$CLASH_CFG" 2>/dev/null)
         old_cmfa_mode=$("$YQ" e '.cmfa-plugin.mode // "tproxy"' "$CLASH_CFG" 2>/dev/null)
         old_tproxy=$("$YQ" e '.tproxy-port // 7893' "$CLASH_CFG" 2>/dev/null)
-        "$YQ" e -i ".[\"external-controller\"] = \"$old_ctrl\" | .[\"tproxy-port\"] = $old_tproxy | .cmfa-plugin.mode = \"$old_cmfa_mode\" | .cmfa-plugin.dashboard = \"zashboard\" | .cmfa-plugin.mosdns_enable = false" "$tmp_merged" 2>/dev/null
+        old_mixed=$("$YQ" e '.mixed-port // 7890' "$CLASH_CFG" 2>/dev/null)
+        [ -z "$old_mixed" ] || [ "$old_mixed" = "0" ] || [ "$old_mixed" = "null" ] && old_mixed=7890
+        "$YQ" e -i ".[\"external-controller\"] = \"$old_ctrl\" | .[\"tproxy-port\"] = $old_tproxy | .[\"mixed-port\"] = $old_mixed | .cmfa-plugin.mode = \"$old_cmfa_mode\" | .cmfa-plugin.dashboard = \"zashboard\" | .cmfa-plugin.mosdns_enable = false" "$tmp_merged" 2>/dev/null
         if [ -n "$old_sec" ]; then
             SEC_VAL="$old_sec" "$YQ" e -i '.secret = env(SEC_VAL)' "$tmp_merged" 2>/dev/null
         fi
@@ -399,18 +401,16 @@ case "$method $path" in
         mv "$tmp_merged" "$CLASH_CFG"
         rm -f "$tmp_dl"
         new_sha=$(sha256sum "$CLASH_CFG" | awk '{print $1}')
-        # Reload Mihomo via API
-        sec=$(mihomo_secret)
+        # Cleanly restart Clash.Service so TProxy/iptables, fake-ip, and GOMEMLIMIT stay 100% consistent
         reload_ok=0
-        if [ -n "$sec" ]; then
-            "$CURL" -fsS --max-time 10 -X PUT -H "Authorization: Bearer $sec" -H "Content-Type: application/json" -d "{\"path\":\"$CLASH_CFG\"}" "${MIHOMO_API}/configs?force=true" >/dev/null 2>&1 && reload_ok=1
-        else
-            "$CURL" -fsS --max-time 10 -X PUT -H "Content-Type: application/json" -d "{\"path\":\"$CLASH_CFG\"}" "${MIHOMO_API}/configs?force=true" >/dev/null 2>&1 && reload_ok=1
-        fi
+        /data/clash/Scripts/Clash.Service stop >/data/clash/debug/last-action.log 2>&1 || true
+        sleep 1
+        /data/clash/Scripts/Clash.Service start >>/data/clash/debug/last-action.log 2>&1 && reload_ok=1
         if [ "$reload_ok" -ne 1 ]; then
             cp "$bak_cfg" "$CLASH_CFG"
-            audit_log "sub_refresh" "500" "reload_failed_rolled_back"
-            send_json 500 "Internal Server Error" '{"ok":false,"error":"mihomo reload failed; rolled back previous config.yaml"}'
+            /data/clash/Scripts/Clash.Service start >>/data/clash/debug/last-action.log 2>&1 || true
+            audit_log "sub_refresh" "500" "restart_failed_rolled_back"
+            send_json 500 "Internal Server Error" '{"ok":false,"error":"clash restart failed; rolled back previous config.yaml"}'
             exit 0
         fi
         now_iso=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "")
