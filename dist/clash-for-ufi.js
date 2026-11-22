@@ -3082,12 +3082,12 @@ grep -qxF 'inotifyd /data/clash/Scripts/Clash.Inotify "/data/clash/Clash" >> /de
    if (!headRes.ok) throw new Error(`读取插件列表失败 (${headRes.status})`);
    const headJson = await headRes.json();
    const fullText = String(headJson?.text || '');
-   const blockRe = /<!-- \[KANO_PLUGIN_START\] Clash for UFI -->[\s\S]*?<!-- \[KANO_PLUGIN_END\] Clash for UFI -->/;
+   const blockRe = /<!-- \[KANO_PLUGIN_START\] (Clash for UFI(?:\.js)?|clash-for-ufi\.js) -->[\s\S]*?<!-- \[KANO_PLUGIN_END\] \1 -->/;
    if (!blockRe.test(fullText)) throw new Error('未找到 Clash for UFI 插件块，请在插件功能中手动导入');
    try { localStorage.setItem('clash_for_ufi_backup_v1', fullText.match(blockRe)[0]); } catch (_) {}
    let nextText = fullText.replace(
     blockRe,
-    `<!-- [KANO_PLUGIN_START] Clash for UFI -->\n${newPluginHtml}\n<!-- [KANO_PLUGIN_END] Clash for UFI -->`,
+    `<!-- [KANO_PLUGIN_START] ${fullText.match(blockRe)[1]} -->\n${newPluginHtml}\n<!-- [KANO_PLUGIN_END] ${fullText.match(blockRe)[1]} -->`,
    );
    nextText = nextText.replace(/<!-- \[KANO_PLUGIN_START\] UFI Proxy Console -->[\s\S]*?<!-- \[KANO_PLUGIN_END\] UFI Proxy Console -->\s*/g, '');
    const hdrs = { 'Content-Type': 'application/json' };
