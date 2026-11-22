@@ -20,14 +20,22 @@ MIHOMO_API="http://127.0.0.1:7788"
 
 mkdir -p "$DEBUG_DIR" "$FAIL_DIR" 2>/dev/null || true
 
+ALLOWED_ORIGIN=""
+send_cors_headers() {
+    if [ -n "$ALLOWED_ORIGIN" ]; then
+        printf 'Access-Control-Allow-Origin: %s\r\nAccess-Control-Allow-Headers: Authorization, Content-Type\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nVary: Origin\r\n' "$ALLOWED_ORIGIN"
+    fi
+}
+
 send_json() {
     local code="$1"
     local reason="$2"
     local body="$3"
     local len
     len=$(printf '%s' "$body" | wc -c | tr -d ' ')
-    printf 'HTTP/1.1 %s %s\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' \
-        "$code" "$reason" "$len" "$body"
+    printf 'HTTP/1.1 %s %s\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n' "$code" "$reason"
+    send_cors_headers
+    printf 'Content-Length: %s\r\nConnection: close\r\n\r\n%s' "$len" "$body"
 }
 
 audit_log() {
@@ -74,6 +82,7 @@ path=$(printf '%s' "$raw_target" | cut -d'?' -f1)
 query=$(printf '%s' "$raw_target" | cut -s -d'?' -f2)
 
 auth_header=""
+origin_header=""
 content_len=0
 while IFS= read -r hdr; do
     hdr=$(printf '%s' "$hdr" | tr -d '\r')
@@ -83,6 +92,10 @@ while IFS= read -r hdr; do
             auth_header="${hdr#*:}"
             auth_header=$(printf '%s' "$auth_header" | sed 's/^[[:space:]]*//')
             ;;
+        [Oo]rigin:*|[Oo]RIGIN:*)
+            origin_header="${hdr#*:}"
+            origin_header=$(printf '%s' "$origin_header" | sed 's/^[[:space:]]*//')
+            ;;
         [Cc]ontent-[Ll]ength:*|[Cc]ONTENT-[Ll]ENGTH:*)
             cl="${hdr#*:}"
             cl=$(printf '%s' "$cl" | tr -dc '0-9')
@@ -91,13 +104,17 @@ while IFS= read -r hdr; do
     esac
 done
 
-req_body=""
-if [ "$content_len" -gt 0 ] 2>/dev/null; then
-    if [ "$content_len" -gt 4096 ]; then
-        send_json 413 "Payload Too Large" '{"ok":false,"error":"request body too large"}'
-        exit 0
-    fi
-    req_body=$(dd bs=1 count="$content_len" 2>/dev/null)
+case "$origin_header" in
+    http://192.168.0.1:2333|http://127.0.0.1:2333|http://ufi.ztedevice.com:2333|http://192.168.*:2333)
+        ALLOWED_ORIGIN="$origin_header"
+        ;;
+esac
+
+if [ "$method" = "OPTIONS" ]; then
+    printf 'HTTP/1.1 204 No Content\r\n'
+    send_cors_headers
+    printf 'Content-Length: 0\r\nConnection: close\r\n\r\n'
+    exit 0
 fi
 
 # Rate-limit check per peer IP
@@ -135,6 +152,15 @@ if [ -z "$expected_token" ] || [ "$provided_token" != "$expected_token" ]; then
     exit 0
 fi
 rm -f "$fail_file"
+
+req_body=""
+if [ "$path" != "/v1/core/upload" ] && [ "$content_len" -gt 0 ] 2>/dev/null; then
+    if [ "$content_len" -gt 4096 ]; then
+        send_json 413 "Payload Too Large" '{"ok":false,"error":"request body too large"}'
+        exit 0
+    fi
+    req_body=$(dd bs=1 count="$content_len" 2>/dev/null)
+fi
 
 # Routing
 case "$method $path" in
@@ -440,6 +466,79 @@ EOF
         else
             send_json 400 "Bad Request" '{"ok":false,"error":"failed to select proxy in mihomo"}'
         fi
+        ;;
+
+    "POST /v1/core/upload")
+        if [ "$content_len" -le 0 ] 2>/dev/null || [ "$content_len" -gt 125829120 ] 2>/dev/null; then
+            send_json 400 "Bad Request" '{"ok":false,"error":"invalid Content-Length (1B..120MiB required)"}'
+            exit 0
+        fi
+        if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+            send_json 409 "Conflict" '{"ok":false,"error":"another control action is in progress"}'
+            exit 0
+        fi
+        trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+        up_raw="$CLASH_DIR/Clash.Core.upload"
+        up_stg="$CLASH_DIR/Clash.Core.staging"
+        up_bak="$CLASH_DIR/Clash.Core.bak"
+        rm -f "$up_raw" "$up_stg"
+        blocks=$((content_len / 65536))
+        rem=$((content_len % 65536))
+        {
+            [ "$blocks" -gt 0 ] && dd bs=65536 count="$blocks" 2>/dev/null
+            [ "$rem" -gt 0 ] && dd bs=1 count="$rem" 2>/dev/null
+        } > "$up_raw"
+        actual_sz=$(wc -c < "$up_raw" 2>/dev/null | tr -d ' ' || echo 0)
+        if [ "$actual_sz" != "$content_len" ]; then
+            rm -f "$up_raw"
+            audit_log "core_upload" "400" "truncated=$actual_sz/$content_len"
+            send_json 400 "Bad Request" '{"ok":false,"error":"incomplete upload stream"}'
+            exit 0
+        fi
+        magic2=$(od -An -tx1 -N2 "$up_raw" 2>/dev/null | tr -d ' \n')
+        if [ "$magic2" = "1f8b" ]; then
+            if ! gzip -dc "$up_raw" > "$up_stg" 2>/dev/null; then
+                rm -f "$up_raw" "$up_stg"
+                audit_log "core_upload" "400" "gzip_failed"
+                send_json 400 "Bad Request" '{"ok":false,"error":"gzip decompression failed"}'
+                exit 0
+            fi
+            rm -f "$up_raw"
+        else
+            mv -f "$up_raw" "$up_stg"
+        fi
+        magic4=$(od -An -tx1 -N4 "$up_stg" 2>/dev/null | tr -d ' \n')
+        mach2=$(od -An -tx1 -j 18 -N2 "$up_stg" 2>/dev/null | tr -d ' \n')
+        if [ "$magic4" != "7f454c46" ] || [ "$mach2" != "b700" ]; then
+            rm -f "$up_stg"
+            audit_log "core_upload" "400" "bad_elf=$magic4/$mach2"
+            send_json 400 "Bad Request" '{"ok":false,"error":"not an aarch64 ELF binary"}'
+            exit 0
+        fi
+        chmod 755 "$up_stg"
+        new_ver=$("$up_stg" -v 2>&1 | head -n 1 || true)
+        test_out=$("$up_stg" -t -d "$CLASH_DIR" -f "$CLASH_CFG" 2>&1)
+        if [ $? -ne 0 ]; then
+            rm -f "$up_stg"
+            audit_log "core_upload" "422" "preflight_failed"
+            send_json 422 "Unprocessable Entity" "$("$JQ" -n --arg v "$new_ver" --arg o "$test_out" '{ok:false, error:"new core failed config -t check", version:$v, output:$o}')"
+            exit 0
+        fi
+        new_sha=$(sha256sum "$up_stg" | awk '{print $1}')
+        /data/clash/Scripts/Clash.Service stop >/data/clash/debug/last-action.log 2>&1 || true
+        sleep 1
+        [ -f "$CLASH_BIN" ] && cp -p "$CLASH_BIN" "$up_bak"
+        mv -f "$up_stg" "$CLASH_BIN"
+        chown root:net_raw "$CLASH_BIN" 2>/dev/null || true
+        chmod 755 "$CLASH_BIN"
+        if ! /data/clash/Scripts/Clash.Service start >>/data/clash/debug/last-action.log 2>&1; then
+            [ -f "$up_bak" ] && cp -p "$up_bak" "$CLASH_BIN" && /data/clash/Scripts/Clash.Service start >>/data/clash/debug/last-action.log 2>&1 || true
+            audit_log "core_upload" "500" "start_failed_rolled_back"
+            send_json 500 "Internal Server Error" '{"ok":false,"error":"new core failed to start; rolled back Clash.Core.bak"}'
+            exit 0
+        fi
+        audit_log "core_upload" "0" "sha=$new_sha"
+        send_json 200 "OK" "$("$JQ" -n --arg v "$new_ver" --arg s "$new_sha" '{ok:true, version:$v, sha256:$s}')"
         ;;
 
     *)

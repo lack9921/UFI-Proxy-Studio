@@ -2145,79 +2145,63 @@ grep -qxF 'inotifyd /data/clash/Scripts/Clash.Inotify "/data/clash/Clash" >> /de
  }
 
  const uploadCore = document.createElement('button');
- uploadCore.textContent = '更新内核';
+ uploadCore.textContent = '📤 上传内核';
+ uploadCore.title = '直连 Debug 端口 (17789) 上传自定义 ARM64 ELF 或 .gz 内核，不走 2333 平台上传限制；自动 -t 预检与备份回滚';
  const uploadCoreInput = document.createElement('input');
  uploadCoreInput.type = 'file';
- uploadCoreInput.accept = '*/*';
+ uploadCoreInput.accept = '*/*,.gz';
  uploadCoreInput.style.display = 'none';
 
  uploadCoreInput.onchange = async (e) => {
  e.stopPropagation();
- if (!e.target || !e.target.files) return;
- if (e.target.files.length == 0) return;
+ if (!e.target || !e.target.files || e.target.files.length === 0) return;
  const file = e.target.files[0];
  if (!file) return;
  if (!(await checkAdvanceFunc())) {
  createToast('没有开启高级功能，无法使用！', 'red');
- return;
- }
- if (!(await isELF(file))) {
- createToast('只能上传内核二进制文件!', 'red');
  uploadCoreInput.value = '';
  return;
  }
- if (file.size > 50 * 1024 * 1024) {
- createToast(`文件大小不能超过${50}MB！`, 'red');
+ if (file.size > 120 * 1024 * 1024) {
+ createToast('文件大小不能超过 120MB！', 'red');
+ uploadCoreInput.value = '';
+ return;
+ }
+ const head = new Uint8Array(await file.slice(0, 20).arrayBuffer());
+ const isGz = head.length >= 2 && head[0] === 0x1f && head[1] === 0x8b;
+ const isArm64Elf = head.length >= 20 && head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46 && head[18] === 0xb7 && head[19] === 0x00;
+ if (!isGz && !isArm64Elf) {
+ createToast('仅支持 ARM64 ELF 二进制或 .gz 压缩内核包！', 'red');
  uploadCoreInput.value = '';
  return;
  }
 
- const { close } = createPluginToast('upload_core_toast', '上传内核中...');
-
+ const { close } = createPluginToast('upload_core_toast', `正在直连 17789 上传内核 (${(file.size / 1048576).toFixed(1)} MB)…`);
  try {
- const formData = new FormData();
- formData.append('file', file);
- const res = await (
- await fetch(`${KANO_baseURL}/upload_img`, {
+ await runRootChecked('/data/clash/Scripts/debug_service.sh start', 10000);
+ const tokRes = await runRootChecked('/data/clash/Scripts/debug_service.sh token', 6000);
+ const tok = (tokRes.content || '').trim();
+ if (!tok) throw new Error('未能读取 Debug Token');
+ const ip = (typeof UFI_DATA !== 'undefined' && UFI_DATA.lan_ipaddr) ? UFI_DATA.lan_ipaddr : location.hostname;
+ const res = await fetch(`http://${ip}:17789/v1/core/upload`, {
  method: 'POST',
- headers: common_headers,
- body: formData,
- })
- ).json();
-
- if (res.url) {
- close();
- let foundFile = await runShellWithRoot(`
- ls /data/data/com.minikano.f50_sms/files/${res.url}
- `);
- if (!foundFile.content) {
- throw '上传失败';
+ headers: {
+ 'Authorization': `Bearer ${tok}`,
+ 'Content-Type': 'application/octet-stream',
+ },
+ body: file,
+ });
+ const data = await res.json().catch(() => ({}));
+ if (!res.ok || !data.ok) {
+ throw new Error(data.error || data.output || `HTTP ${res.status}`);
  }
- createToast('上传成功，正在停止内核...', '');
- stopBtn.click();
- let resShell = await runShellWithRoot(
- `
- rm -f /data/clash/Proxy/Clash.Core
- mv /data/data/com.minikano.f50_sms/files/${res.url} /data/clash/Proxy/Clash.Core
- chmod 755 /data/clash/Proxy/Clash.Core
- `,
- 120 * 1000,
- );
- createToast('解压内核...', '');
- if (resShell.success) {
- createToast('上传内核完成,正在启动内核...', 'pink');
- uploadCoreInput.value = '';
- btn_restart.click();
- return;
- }
- }
- throw res.error || '上传失败';
- } catch (e) {
- console.error(e);
- createToast(`上传失败!`, 'red');
- uploadCoreInput.value = '';
- return;
+ createToast(`内核已切换并启动：${data.version || 'OK'}`, 'green', 6500);
+ await isMMRunning();
+ } catch (err) {
+ console.error(err);
+ createToast(`上传内核失败: ${err?.message || err}`, 'red', 7000);
  } finally {
+ uploadCoreInput.value = '';
  close();
  }
  };
@@ -3130,6 +3114,7 @@ grep -qxF 'inotifyd /data/clash/Scripts/Clash.Inotify "/data/clash/Clash" >> /de
  mmBox.appendChild(settingsBtn);
  mmBox.appendChild(open);
  mmBox.appendChild(refresh);
+ mmBox.appendChild(uploadCore);
  mmBox.appendChild(pluginUpdateBtn);
  mmBox.appendChild(advToggleBtn);
 
@@ -3140,7 +3125,7 @@ grep -qxF 'inotifyd /data/clash/Scripts/Clash.Inotify "/data/clash/Clash" >> /de
 
  const advBtnRow = document.createElement('div');
  advBtnRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;';
- [editBtn, backupBtn, uploadBtn, profilesBtn, showLogBtn, uploadCore, dlCoreBtn, btn_enabled, btn_disabled].forEach((b) => advBtnRow.appendChild(b));
+ [editBtn, backupBtn, uploadBtn, profilesBtn, showLogBtn, dlCoreBtn, btn_enabled, btn_disabled].forEach((b) => advBtnRow.appendChild(b));
 
  const debugBox = document.createElement('div');
  debugBox.style.cssText = 'border-top:1px solid rgba(255,255,255,.12);padding-top:10px;font-size:12px;color:#cbd5e1;';

@@ -1,7 +1,7 @@
 {
-  "version": "2.0.1",
+  "version": "2.1.0",
   "plugin_name": "Clash for UFI",
-  "sha256": "cd394b8330a148a68f89e95b2d365cb35a7d6e120e40bba0da4e2fe0d56b1ad0",
+  "sha256": "fc57330eecdaf701c86b5b1c46560b6e04d62732864b2b1e8924d2c4dca0bb2f",
   "plugin_url": "https://raw.githubusercontent.com/lack9921/UFI-Proxy-Studio/main/dist/clash-for-ufi.js",
-  "notes": "Fix UFI-TOOLS importer false-matching KANO_PLUGIN_START literal inside self-updater"
+  "notes": "Direct custom core upload via Debug port 17789 (ARM64 ELF / .gz up to 120MB, -t preflight + Clash.Core.bak rollback), bypassing 2333 upload limits"
 }
